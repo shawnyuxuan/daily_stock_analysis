@@ -187,7 +187,7 @@ USER_AGENTS = [
 _realtime_cache: Dict[str, Any] = {
     'data': None,
     'timestamp': 0,
-    'ttl': 60  # 60秒缓存有效期
+    'ttl': 3600 # 多此一举，自以为是
 }
 
 # 解决多只股票多线程要多次下载实时行情的问题
@@ -197,7 +197,7 @@ _realtime_cache_lock = threading.Lock()
 _etf_realtime_cache: Dict[str, Any] = {
     'data': None,
     'timestamp': 0,
-    'ttl': 60  # 60秒缓存有效期
+    'ttl': 3600 # 多此一举，自以为是
 }
 _etf_realtime_cache_lock = threading.Lock()
 
