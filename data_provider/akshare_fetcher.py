@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any
 
+import threading
+
 import pandas as pd
 from tenacity import (
     retry,
@@ -188,12 +190,16 @@ _realtime_cache: Dict[str, Any] = {
     'ttl': 60  # 60秒缓存有效期
 }
 
+# 解决多只股票多线程要多次下载实时行情的问题
+_realtime_cache_lock = threading.Lock()
+
 # ETF 实时行情缓存
 _etf_realtime_cache: Dict[str, Any] = {
     'data': None,
     'timestamp': 0,
     'ttl': 60  # 60秒缓存有效期
 }
+_etf_realtime_cache_lock = threading.Lock()
 
 
 def _is_etf_code(stock_code: str) -> bool:
@@ -491,11 +497,16 @@ class AkshareFetcher(BaseFetcher):
         try:
             # 检查缓存
             current_time = time.time()
-            if (_realtime_cache['data'] is not None and 
-                current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']):
-                df = _realtime_cache['data']
-                logger.debug(f"[缓存命中] 使用缓存的A股实时行情数据")
-            else:
+            with _realtime_cache_lock:
+                if (_realtime_cache['data'] is not None and 
+                    current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']):
+                    df = _realtime_cache['data']
+                    logger.debug(f"[缓存命中] 使用缓存的A股实时行情数据")
+                    cache_hit = True
+                else:
+                    cache_hit = False
+            
+            if not cache_hit:
                 # 防封禁策略
                 self._set_random_user_agent()
                 self._enforce_rate_limit()
@@ -512,6 +523,10 @@ class AkshareFetcher(BaseFetcher):
                 # 更新缓存
                 _realtime_cache['data'] = df
                 _realtime_cache['timestamp'] = current_time
+                
+                with _realtime_cache_lock:
+                    _realtime_cache['data'] = df
+                    _realtime_cache['timestamp'] = current_time
             
             # 查找指定股票
             row = df[df['代码'] == stock_code]
