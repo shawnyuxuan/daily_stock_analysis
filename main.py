@@ -167,6 +167,52 @@ class StockAnalysisPipeline:
         else:
             logger.warning("搜索服务未启用（未配置 API Key）")
     
+    def fetch_realtime_cache(self, stock_codes: List[str]) -> bool:
+        """
+        预先获取实时行情缓存，避免多线程重复下载
+        
+        Returns:
+            是否成功获取缓存
+        """
+        from data_provider.akshare_fetcher import _realtime_cache, _realtime_cache_lock
+        import time as _time
+        
+        logger.info("=" * 60)
+        logger.info("[预加载] 开始预加载全市场实时行情数据到缓存")
+        logger.info("=" * 60)
+        
+        start_time = _time.time()
+        
+        try:
+            # 设置 User-Agent 和 Rate Limit
+            self.akshare_fetcher._set_random_user_agent()
+            self.akshare_fetcher._enforce_rate_limit()
+            
+            # 主线程一次性调用 API 获取全部实时数据
+            logger.info("[API调用] ak.stock_zh_a_spot_em() - 获取全市场A股实时行情")
+            import akshare as ak
+            df = ak.stock_zh_a_spot_em()
+            
+            api_time = _time.time() - start_time
+            logger.info(f"[API返回] 成功获取 {len(df)} 只股票的实时行情，耗时 {api_time:.2f}s")
+            
+            # 将数据保存到全局缓存（线程安全）
+            with _realtime_cache_lock:
+                _realtime_cache['data'] = df
+                _realtime_cache['timestamp'] = _time.time()
+            
+            logger.info(f"[缓存更新] 全局实时行情缓存已更新，有效期 {_realtime_cache['ttl']} 秒")
+            logger.info(f"[待分析] 股票列表: {', '.join(stock_codes)} ({len(stock_codes)} 只)")
+            logger.info("=" * 60)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"[预加载失败] 预加载实时行情失败: {e}")
+            logger.warning("[降级] 将继续执行，每个线程单独获取实时行情")
+            return False
+        
+    
     def fetch_and_save_stock_data(
         self, 
         code: str,
@@ -509,6 +555,9 @@ class StockAnalysisPipeline:
         logger.info(f"===== 开始分析 {len(stock_codes)} 只股票 =====")
         logger.info(f"股票列表: {', '.join(stock_codes)}")
         logger.info(f"并发数: {self.max_workers}, 模式: {'仅获取数据' if dry_run else '完整分析'}")
+        
+        # 一次性预加载实时行情缓存
+        self.fetch_realtime_cache(stock_codes)
         
         results: List[AnalysisResult] = []
         
