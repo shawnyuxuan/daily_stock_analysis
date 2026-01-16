@@ -144,7 +144,7 @@ class StockAnalysisPipeline:
             max_workers: 最大并发线程数（可选，默认从配置读取）
         """
         self.config = config or get_config()
-        self.max_workers = max_workers or self.config.max_workers
+        self.max_workers = self.config.max_workers
         
         # 初始化各模块
         self.db = get_db()
